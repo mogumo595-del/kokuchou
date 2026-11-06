@@ -2,265 +2,230 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>データ集計ダッシュボード</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
-  body { font-family: Arial, sans-serif; margin: 20px auto; max-width: 900px; }
-  h1 { text-align: center; margin-bottom: 30px; }
-  .upload-area, .filter-area { margin-bottom: 20px; }
-  label { margin-right: 12px; font-weight: bold; }
-  select, button, input[type="file"] { padding: 6px 10px; font-size: 14px; }
-  #chartContainer { max-width: 800px; margin-top: 30px; }
+  body { font-family: Arial, sans-serif; margin: 20px; }
+  .upload-section { margin-bottom: 20px; }
+  canvas { max-width: 600px; margin-top: 30px; }
 </style>
 </head>
 <body>
 
 <h1>データ集計ダッシュボード</h1>
 
-<div class="upload-area">
-  <label for="csvFileInput">CSVファイルを選択：</label>
-  <input type="file" id="csvFileInput" accept=".csv" />
-  <button id="uploadBtn">アップロード実行</button>
+<!-- アップロードセクション -->
+<div class="upload-section">
+  <h3>CSVファイルアップロード</h3>
+
+  <div>
+    <label>CSV1: 人口・男女別データ</label><br/>
+    <input type="file" id="file1" accept=".csv" />
+    <button id="upload1">アップロード実行</button>
+  </div>
+
+  <div>
+    <label>CSV2: 世帯の種類別データ</label><br/>
+    <input type="file" id="file2" accept=".csv" />
+    <button id="upload2">アップロード実行</button>
+  </div>
+
+  <div>
+    <label>CSV3: 追加統計データ</label><br/>
+    <input type="file" id="file3" accept=".csv" />
+    <button id="upload3">アップロード実行</button>
+  </div>
 </div>
 
-<div class="filter-area">
-  <label for="prefectureSelect">都道府県で絞り込み：</label>
-  <select id="prefectureSelect" disabled>
-    <option value="">-- 都道府県を選択 --</option>
-  </select>
-
-  <label for="municipalitySelect">市区町村で絞り込み：</label>
-  <select id="municipalitySelect" disabled>
-    <option value="">-- 市区町村を選択 --</option>
+<!-- 絞り込み -->
+<div>
+  <label for="municipalitySelect">市町村で絞り込み:</label>
+  <select id="municipalitySelect">
+    <option value="">--選択してください--</option>
   </select>
 </div>
 
-<div id="chartContainer">
-  <canvas id="populationChart"></canvas>
+<!-- グラフ表示 -->
+<div>
+  <canvas id="chartPopulation"></canvas>
+  <canvas id="chartHouseholds"></canvas>
+  <canvas id="chartStats"></canvas>
 </div>
 
 <script>
-  let rawData = [];             // アップロードCSVの全データ保持
-  let uniquePrefectures = [];  // 抽出した都道府県リスト
-  let filteredMunicipalities = []; // フィルター後の市区町村リスト
+  let data1 = null; // CSV1データ格納
+  let data2 = null; // CSV2データ格納
+  let data3 = null; // CSV3データ格納
 
-  const csvFileInput = document.getElementById('csvFileInput');
-  const uploadBtn = document.getElementById('uploadBtn');
-  const prefectureSelect = document.getElementById('prefectureSelect');
-  const municipalitySelect = document.getElementById('municipalitySelect');
-  const ctx = document.getElementById('populationChart').getContext('2d');
-  let populationChart;
+  let municipalities = new Set();
 
-  // 簡易CSVパース（ヘッダー付きカンマ区切り、改行あり）
+  // Chart.jsインスタンスを保持
+  let chartPopulation = null;
+  let chartHouseholds = null;
+  let chartStats = null;
+
+  // ファイル読み込み＆パース関数（簡易版）
   function parseCSV(text) {
-    const lines = text.trim().split(/\r?\n/);
-    // ヘッダーはスペースやタブの混入が有る場合があるのでカンマ区切り後、トリム
-    const headers = lines[0].split(',').map(h => h.trim());
+    const lines = text.trim().split('\n');
+    const headers = lines[0].split(/\t|,/);
     const rows = lines.slice(1).map(line => {
-      const values = line.split(',').map(v => v.trim());
-      let rowObj = {};
-      headers.forEach((h, i) => {
-        rowObj[h] = values[i] !== undefined ? values[i] : '';
-      });
-      return rowObj;
+      const values = line.split(/\t|,/);
+      let obj = {};
+      headers.forEach((h, i) => obj[h.trim()] = values[i] ? values[i].trim() : "");
+      return obj;
     });
-    return rows;
+    return { headers, rows };
   }
 
-  // 「都道府県」「市区町村」カラム名候補を判定
-  // ご提示のデータを省略・簡易化した想定カラム名に合わせています。
-  function detectPrefectureMunicipalityKeys(headers) {
-    let prefKeys = headers.filter(h => /(全国|都道府県|県|市区町村|location|prefecture)/i.test(h));
-    let muniKeys = headers.filter(h => /(市|区|町|村|municipality|city|area)/i.test(h));
-    // ざっくりと、一致した最初のものを返す
-    return {
-      prefKey: prefKeys.length ? prefKeys[0] : null,
-      muniKey: muniKeys.length ? muniKeys[0] : null
-    };
-  }
-
-  function getValueOrZero(obj, keys) {
-    for (const key of keys) {
-      if (obj[key] && obj[key] !== '') {
-        let num = Number(obj[key].replace(/,/g, '')); // カンマ除去して数値化
-        if (!isNaN(num)) return num;
-      }
+  // 市町村名の抽出
+  function extractMunicipalities() {
+    municipalities.clear();
+    function addFromData(data) {
+      if (!data) return;
+      data.rows.forEach(row => {
+        const muni = row["全国、都道府県、市区町村（2000年市区町村含む）"];
+        if (muni) municipalities.add(muni);
+      });
     }
-    return 0;
+    addFromData(data1);
+    addFromData(data2);
+    addFromData(data3);
+
+    const select = document.getElementById('municipalitySelect');
+    // すでにあるoptionをクリア
+    select.innerHTML = '<option value="">--選択してください--</option>';
+    Array.from(municipalities).sort().forEach(name => {
+      const option = document.createElement('option');
+      option.value = name;
+      option.textContent = name;
+      select.appendChild(option);
+    });
   }
 
-  // アップロード実行
-  uploadBtn.addEventListener('click', () => {
-    const file = csvFileInput.files[0];
-    if (!file) {
-      alert('CSVファイルを選択してください。');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      let text = reader.result;
-
-      // 特定のヘッダーや空行が存在する形式の場合は事前に不要行をスキップする処理が必要です。
-      // ご提供データは先頭に説明行等が複数あるため簡略化のためここではフルデータの先頭数行削除を例示
-      // 必要に応じてカスタマイズしてください。
-
-      // 先頭に説明行などがあるケースを以下で落とし、最初にカンマ区切りのヘッダー行を探す例：
-      const lines = text.split(/\r?\n/);
-      let headerLineIndex = lines.findIndex(line => line.includes(','));
-      if(headerLineIndex < 0) {
-        alert('CSVファイルの形式が不正です。');
+  // ファイルアップロード処理
+  function setupUpload(fileInputId, buttonId, dataVarName) {
+    document.getElementById(buttonId).addEventListener('click', () => {
+      const input = document.getElementById(fileInputId);
+      if (!input.files || input.files.length === 0) {
+        alert('ファイルを選択してください');
         return;
       }
-      const csvText = lines.slice(headerLineIndex).join('\n');
-
-      rawData = parseCSV(csvText);
-      if(rawData.length === 0) {
-        alert('CSVファイルに有効なデータがありません。');
-        return;
-      }
-
-      // ヘッダーから都道府県・市区町村カラム名判定
-      const headers = Object.keys(rawData[0]);
-      const { prefKey, muniKey } = detectPrefectureMunicipalityKeys(headers);
-      if(!prefKey || !muniKey) {
-        alert('CSVの都道府県、市区町村を示すカラムが検出できません。カラム名を確認してください。');
-        return;
-      }
-
-      // 都道府県リスト作成（重複除去）
-      let prefecturesSet = new Set();
-      rawData.forEach(row => {
-        const prefName = row[prefKey];
-        if(prefName && prefName.trim() !== '') {
-          prefecturesSet.add(prefName.trim());
+      const file = input.files[0];
+      const reader = new FileReader();
+      reader.onload = e => {
+        try {
+          const parsed = parseCSV(e.target.result);
+          window[dataVarName] = parsed;
+          alert(file.name + ' をアップロードしました');
+          extractMunicipalities();
+          updateCharts();
+        } catch (err) {
+          alert('ファイルの読み込みに失敗しました');
+          console.error(err);
         }
-      });
-      uniquePrefectures = Array.from(prefecturesSet).sort();
-
-      // 都道府県セレクト更新
-      prefectureSelect.innerHTML = `<option value="">-- 都道府県を選択 --</option>`;
-      uniquePrefectures.forEach(pref => {
-        const opt = document.createElement('option');
-        opt.value = pref;
-        opt.textContent = pref;
-        prefectureSelect.appendChild(opt);
-      });
-      prefectureSelect.disabled = false;
-
-      // 市区町村セレクト初期化
-      municipalitySelect.innerHTML = `<option value="">-- 市区町村を選択 --</option>`;
-      municipalitySelect.disabled = true;
-
-      // グラフ全体表示（アップロード直後は絞り込みなし）
-      updateChart(rawData, prefKey, muniKey);
-
-      alert('アップロード完了しました。');
-    };
-    reader.readAsText(file);
-  });
-
-
-  // 都道府県変化時
-  prefectureSelect.addEventListener('change', () => {
-    const selectedPref = prefectureSelect.value;
-    if(!selectedPref) {
-      // 県選択解除時は市区町村選択不可、グラフは全体
-      municipalitySelect.innerHTML = `<option value="">-- 市区町村を選択 --</option>`;
-      municipalitySelect.disabled = true;
-      updateChart(rawData, null, null);
-      return;
-    }
-    // 選択県に属する市区町村を抽出
-    const headers = Object.keys(rawData[0]);
-    const { prefKey, muniKey } = detectPrefectureMunicipalityKeys(headers);
-
-    filteredMunicipalities = rawData
-      .filter(row => row[prefKey] === selectedPref)
-      .map(row => row[muniKey])
-      .filter(v => v && v.trim() !== '');
-    const uniqueMuni = Array.from(new Set(filteredMunicipalities)).sort();
-
-    municipalitySelect.innerHTML = `<option value="">-- 市区町村を選択 --</option>`;
-    uniqueMuni.forEach(muni => {
-      const opt = document.createElement('option');
-      opt.value = muni;
-      opt.textContent = muni;
-      municipalitySelect.appendChild(opt);
+      };
+      reader.readAsText(file, 'UTF-8');
     });
-    municipalitySelect.disabled = false;
+  }
 
-    updateChart(rawData.filter(row => row[prefKey] === selectedPref), prefKey, muniKey);
-  });
-
-  // 市区町村変化時
-  municipalitySelect.addEventListener('change', () => {
-    const selectedPref = prefectureSelect.value;
-    const selectedMuni = municipalitySelect.value;
-    const headers = Object.keys(rawData[0]);
-    const { prefKey, muniKey } = detectPrefectureMunicipalityKeys(headers);
-
-    let filteredData = rawData;
-    if(selectedPref) {
-      filteredData = filteredData.filter(row => row[prefKey] === selectedPref);
-    }
-    if(selectedMuni) {
-      filteredData = filteredData.filter(row => row[muniKey] === selectedMuni);
-    }
-    updateChart(filteredData, prefKey, muniKey);
-  });
-
-  // グラフ更新関数
-  function updateChart(data, prefKey, muniKey) {
-    if(populationChart) {
-      populationChart.destroy();
-    }
-    // 表示データの「総数」や「総人口」に相当するカラムを推定(例: /男女 総数, 総数, 合計など)
-    const sumKeys = Object.keys(data[0] || {}).filter(k => /(総数|人口|合計|total)/i.test(k));
-
-    if(data.length === 0 || sumKeys.length === 0) {
-      // データがなければ空グラフ
-      populationChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels: [],
-          datasets: [{
-            label: '該当データなし',
-            data: [],
-            backgroundColor: 'rgba(200,0,0,0.5)'
-          }]
-        },
-        options: { responsive: true }
-      });
+  // グラフ描画更新
+  function updateCharts() {
+    const selected = document.getElementById('municipalitySelect').value;
+    if (!selected) {
+      clearCharts();
       return;
     }
-    // 表示ラベルは「市区町村」または「都道府県」  
-    let labelKey = muniKey || prefKey || Object.keys(data[0])[0];
+    // 人口・男女別グラフ（CSV1）
+    if (data1) {
+      const filtered = data1.rows.filter(r => r["全国、都道府県、市区町村（2000年市区町村含む）"] === selected);
+      if (filtered.length > 0) {
+        const d = filtered[0];
+        const labels = ['総数', '男', '女'];
+        const values = [parseInt(d['総数'].replace(/,/g, '') || 0), parseInt(d['男'].replace(/,/g, '') || 0), parseInt(d['女'].replace(/,/g, '') || 0)];
+        drawChart(chartPopulation, '人口・男女別', labels, values);
+      }
+    }
+    // 世帯数グラフ（CSV2）
+    if (data2) {
+      const filtered = data2.rows.filter(r => r["全国、都道府県、市区町村（2000年市区町村含む）"] === selected);
+      if (filtered.length > 0) {
+        const d = filtered[0];
+        // 「総数」「一般世帯」「施設等の世帯」 をたとえば表示（左側の項目を利用）
+        // ここは、データ2の構成により若干変える必要あり、例として「総数", "一般世帯", "施設等の世帯"の最初の3列を使う。
+        const labels = ['総数', '一般世帯', '施設等の世帯'];
+        const values = [
+          parseInt(d['総数'].replace(/,/g, '') || 0),
+          parseInt(d['一般世帯'].replace(/,/g, '') || 0),
+          parseInt(d['施設等の世帯'].replace(/,/g, '') || 0),
+        ];
+        drawChart(chartHouseholds, '世帯数の種類別', labels, values);
+      }
+    }
+    // 追加統計グラフ（CSV3）
+    if (data3) {
+      const filtered = data3.rows.filter(r => r["全国、都道府県、市区町村（2000年市区町村含む）"] === selected);
+      if (filtered.length > 0) {
+        const d = filtered[0];
+        const labels = ['2020年人口', '2020年世帯数', '5年人口増減率（％）', '5年世帯増減率（％）'];
+        const values = [
+          parseInt(d['2020年（令和2年）の人口（組替）【人】']?.replace(/,/g, '') || 0),
+          parseInt(d['2020年（令和2年）の世帯数（組替）【世帯】']?.replace(/,/g, '') || 0),
+          parseFloat(d['5年間の人口増減率【％】'] || 0),
+          parseFloat(d['5年間の世帯増減率【％】'] || 0),
+        ];
+        drawChart(chartStats, '追加統計データ', labels, values);
+      }
+    }
+  }
 
-    const labels = data.map(row => row[labelKey]);
-    // 数値は最初に見つかった該当カラムで
-    const valueKey = sumKeys[0];
-    const values = data.map(row => Number((row[valueKey] || '0').toString().replace(/,/g, '')));
+  function drawChart(chartInstance, title, labels, values) {
+    if (chartInstance) {
+      chartInstance.destroy();
+    }
+    const ctxId = title.replace(/\s/g, '') === '人口・男女別' ? 'chartPopulation' :
+                  (title === '世帯数の種類別' ? 'chartHouseholds' : 'chartStats');
+    const ctx = document.getElementById(ctxId).getContext('2d');
+    if (!ctx) return;
 
-    populationChart = new Chart(ctx, {
+    window['chart' + title.replace(/[\s・]/g, '')] = new Chart(ctx, {
       type: 'bar',
       data: {
         labels: labels,
         datasets: [{
-          label: valueKey,
+          label: title,
           data: values,
-          backgroundColor: 'rgba(54, 162, 235, 0.7)'
+          backgroundColor: ['#3366CC', '#DC3912', '#FF9900', '#109618'],
         }]
       },
       options: {
         responsive: true,
+        plugins: {
+          legend: { display: false },
+          title: { display: true, text: title },
+        },
         scales: {
           y: { beginAtZero: true }
         }
       }
     });
   }
-</script>
 
+  function clearCharts() {
+    [chartPopulation, chartHouseholds, chartStats].forEach(c => {
+      if (c) {
+        c.destroy();
+      }
+    });
+  }
+
+  // セレクトボックス更新対応
+  document.getElementById('municipalitySelect').addEventListener('change', updateCharts);
+
+  // 各アップロードボタンのセットアップ
+  setupUpload('file1', 'upload1', 'data1');
+  setupUpload('file2', 'upload2', 'data2');
+  setupUpload('file3', 'upload3', 'data3');
+
+</script>
 </body>
 </html>
