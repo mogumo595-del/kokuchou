@@ -53,46 +53,61 @@
 </div>
 
 <script>
-  let data1 = null; // CSV1データ格納
-  let data2 = null; // CSV2データ格納
-  let data3 = null; // CSV3データ格納
-
+  let data1 = null;
+  let data2 = null;
+  let data3 = null;
   let municipalities = new Set();
 
-  // Chart.jsインスタンスを保持
   let chartPopulation = null;
   let chartHouseholds = null;
   let chartStats = null;
 
-  // ファイル読み込み＆パース関数（簡易版）
   function parseCSV(text) {
     const lines = text.trim().split('\n');
-    const headers = lines[0].split(/\t|,/);
+    const headerLine = lines[0];
+    // タブとカンマどちらも考慮
+    const headers = headerLine.includes('\t') ? headerLine.split('\t') : headerLine.split(',');
     const rows = lines.slice(1).map(line => {
-      const values = line.split(/\t|,/);
+      const values = line.includes('\t') ? line.split('\t') : line.split(',');
       let obj = {};
-      headers.forEach((h, i) => obj[h.trim()] = values[i] ? values[i].trim() : "");
+      headers.forEach((h, i) => obj[h.trim()] = (values[i] || "").trim());
       return obj;
     });
     return { headers, rows };
   }
 
-  // 市町村名の抽出
+  // 市町村名列のカラム名部分一致で取得
+  function findMuniColumn(headers) {
+    for (const h of headers) {
+      if (h.includes('全国、都道府県、市区町村')) {
+        return h;
+      }
+    }
+    return null;
+  }
+
   function extractMunicipalities() {
     municipalities.clear();
+
     function addFromData(data) {
       if (!data) return;
+      const muniCol = findMuniColumn(data.headers);
+      if (!muniCol) {
+        console.warn('市町村列を見つけられませんでした。headers:', data.headers);
+        return;
+      }
+      // console.log('市町村列:', muniCol);
       data.rows.forEach(row => {
-        const muni = row["全国、都道府県、市区町村（2000年市区町村含む）"];
+        const muni = row[muniCol];
         if (muni) municipalities.add(muni);
       });
     }
+
     addFromData(data1);
     addFromData(data2);
     addFromData(data3);
 
     const select = document.getElementById('municipalitySelect');
-    // すでにあるoptionをクリア
     select.innerHTML = '<option value="">--選択してください--</option>';
     Array.from(municipalities).sort().forEach(name => {
       const option = document.createElement('option');
@@ -102,7 +117,6 @@
     });
   }
 
-  // ファイルアップロード処理
   function setupUpload(fileInputId, buttonId, dataVarName) {
     document.getElementById(buttonId).addEventListener('click', () => {
       const input = document.getElementById(fileInputId);
@@ -128,72 +142,82 @@
     });
   }
 
-  // グラフ描画更新
   function updateCharts() {
     const selected = document.getElementById('municipalitySelect').value;
     if (!selected) {
       clearCharts();
       return;
     }
-    // 人口・男女別グラフ（CSV1）
-    if (data1) {
-      const filtered = data1.rows.filter(r => r["全国、都道府県、市区町村（2000年市区町村含む）"] === selected);
-      if (filtered.length > 0) {
-        const d = filtered[0];
-        const labels = ['総数', '男', '女'];
-        const values = [parseInt(d['総数'].replace(/,/g, '') || 0), parseInt(d['男'].replace(/,/g, '') || 0), parseInt(d['女'].replace(/,/g, '') || 0)];
-        drawChart(chartPopulation, '人口・男女別', labels, values);
-      }
+
+    function findRowByMuni(data) {
+      if (!data) return null;
+      const muniCol = findMuniColumn(data.headers);
+      if (!muniCol) return null;
+      return data.rows.find(r => r[muniCol] === selected);
     }
-    // 世帯数グラフ（CSV2）
-    if (data2) {
-      const filtered = data2.rows.filter(r => r["全国、都道府県、市区町村（2000年市区町村含む）"] === selected);
-      if (filtered.length > 0) {
-        const d = filtered[0];
-        // 「総数」「一般世帯」「施設等の世帯」 をたとえば表示（左側の項目を利用）
-        // ここは、データ2の構成により若干変える必要あり、例として「総数", "一般世帯", "施設等の世帯"の最初の3列を使う。
-        const labels = ['総数', '一般世帯', '施設等の世帯'];
-        const values = [
-          parseInt(d['総数'].replace(/,/g, '') || 0),
-          parseInt(d['一般世帯'].replace(/,/g, '') || 0),
-          parseInt(d['施設等の世帯'].replace(/,/g, '') || 0),
-        ];
-        drawChart(chartHouseholds, '世帯数の種類別', labels, values);
-      }
+
+    const row1 = findRowByMuni(data1);
+    const row2 = findRowByMuni(data2);
+    const row3 = findRowByMuni(data3);
+
+    // CSV1の人口・男女別グラフ
+    if (row1) {
+      const labels = ['総数', '男', '女'];
+      const values = [
+        parseInt((row1['総数'] || '0').replace(/,/g, '')) || 0,
+        parseInt((row1['男'] || '0').replace(/,/g, '')) || 0,
+        parseInt((row1['女'] || '0').replace(/,/g, '')) || 0,
+      ];
+      drawChart('chartPopulation', '人口・男女別', labels, values);
+    } else {
+      clearChart('chartPopulation');
     }
-    // 追加統計グラフ（CSV3）
-    if (data3) {
-      const filtered = data3.rows.filter(r => r["全国、都道府県、市区町村（2000年市区町村含む）"] === selected);
-      if (filtered.length > 0) {
-        const d = filtered[0];
-        const labels = ['2020年人口', '2020年世帯数', '5年人口増減率（％）', '5年世帯増減率（％）'];
-        const values = [
-          parseInt(d['2020年（令和2年）の人口（組替）【人】']?.replace(/,/g, '') || 0),
-          parseInt(d['2020年（令和2年）の世帯数（組替）【世帯】']?.replace(/,/g, '') || 0),
-          parseFloat(d['5年間の人口増減率【％】'] || 0),
-          parseFloat(d['5年間の世帯増減率【％】'] || 0),
-        ];
-        drawChart(chartStats, '追加統計データ', labels, values);
-      }
+
+    // CSV2の世帯数グラフ
+    if (row2) {
+      const labels = ['総数', '一般世帯', '施設等の世帯'];
+      const values = [
+        parseInt((row2['総数'] || '0').replace(/,/g, '')) || 0,
+        parseInt((row2['一般世帯'] || '0').replace(/,/g, '')) || 0,
+        parseInt((row2['施設等の世帯'] || '0').replace(/,/g, '')) || 0,
+      ];
+      drawChart('chartHouseholds', '世帯数の種類別', labels, values);
+    } else {
+      clearChart('chartHouseholds');
+    }
+
+    // CSV3の追加統計グラフ
+    if (row3) {
+      const labels = ['2020年人口', '2020年世帯数', '5年人口増減率（％）', '5年世帯増減率（％）'];
+      const values = [
+        parseInt((row3['2020年（令和2年）の人口（組替）【人】'] || '0').replace(/,/g, '')) || 0,
+        parseInt((row3['2020年（令和2年）の世帯数（組替）【世帯】'] || '0').replace(/,/g, '')) || 0,
+        parseFloat(row3['5年間の人口増減率【％】'] || 0),
+        parseFloat(row3['5年間の世帯増減率【％】'] || 0),
+      ];
+      drawChart('chartStats', '追加統計データ', labels, values);
+    } else {
+      clearChart('chartStats');
     }
   }
 
-  function drawChart(chartInstance, title, labels, values) {
-    if (chartInstance) {
-      chartInstance.destroy();
-    }
-    const ctxId = title.replace(/\s/g, '') === '人口・男女別' ? 'chartPopulation' :
-                  (title === '世帯数の種類別' ? 'chartHouseholds' : 'chartStats');
-    const ctx = document.getElementById(ctxId).getContext('2d');
+  // グラフ描画関数
+  function drawChart(canvasId, title, labels, data) {
+    const ctx = document.getElementById(canvasId).getContext('2d');
     if (!ctx) return;
 
-    window['chart' + title.replace(/[\s・]/g, '')] = new Chart(ctx, {
+    // 既存のチャート破棄（再作成）
+    if (window[canvasId + 'Chart']) {
+      window[canvasId + 'Chart'].destroy();
+    }
+
+    window[canvasId + 'Chart'] = new Chart(ctx, {
       type: 'bar',
       data: {
         labels: labels,
         datasets: [{
           label: title,
-          data: values,
+          data: data,
           backgroundColor: ['#3366CC', '#DC3912', '#FF9900', '#109618'],
         }]
       },
@@ -210,18 +234,17 @@
     });
   }
 
-  function clearCharts() {
-    [chartPopulation, chartHouseholds, chartStats].forEach(c => {
-      if (c) {
-        c.destroy();
-      }
-    });
+  // チャートクリア関数
+  function clearChart(canvasId) {
+    if (window[canvasId + 'Chart']) {
+      window[canvasId + 'Chart'].destroy();
+      window[canvasId + 'Chart'] = null;
+    }
   }
 
-  // セレクトボックス更新対応
+  // 選択変更イベント
   document.getElementById('municipalitySelect').addEventListener('change', updateCharts);
 
-  // 各アップロードボタンのセットアップ
   setupUpload('file1', 'upload1', 'data1');
   setupUpload('file2', 'upload2', 'data2');
   setupUpload('file3', 'upload3', 'data3');
