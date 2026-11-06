@@ -129,9 +129,9 @@ function processFile1(data){
     if(row.length < 13) return;
     const muni = row[5];
     if(!muni) return;
-    const total = Number(row[10].replace(/,/g, '')) || 0;
-    const male = Number(row[11].replace(/,/g, '')) || 0;
-    const female = Number(row[12].replace(/,/g, '')) || 0;
+    const total = Number(row[7].replace(/,/g, '')) || 0;
+    const male = Number(row[8].replace(/,/g, '')) || 0;
+    const female = Number(row[9].replace(/,/g, '')) || 0;
     dataStore.file1[muni] = { total, male, female };
     dataStore.municipalities.add(muni);
   });
