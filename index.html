@@ -55,15 +55,15 @@
   let data3 = null;
   let municipalities = new Set();
 
+  // CSVをタブ区切りでパース
   function parseCSV(text) {
-    // タブ区切りで分割固定 (TSV想定)
     const lines = text.trim().split('\n');
     const headers = lines[0].split('\t').map(h => h.trim());
     const rows = lines.slice(1).map(line => {
       const values = line.split('\t');
       let obj = {};
       headers.forEach((h, i) => {
-        obj[h] = values[i]?.trim() || "";
+        obj[h] = values[i] ? values[i].trim() : "";
       });
       return obj;
     });
@@ -71,10 +71,17 @@
     return { headers, rows };
   }
 
-  // 市町村列を「市区町村」または「市町村」を含む列名として検索
+  // 市町村名の列を特定する関数
   function findMuniColumn(headers) {
+    // 「全国、都道府県、市区町村（2000年市区町村含む）」を含むが「コード」「補助コード」を含まない列名を優先
     for (const h of headers) {
-      if (/市区町村|市町村/.test(h)) {
+      if (h.includes('全国、都道府県、市区町村') && !h.includes('コード') && !h.includes('補助コード')) {
+        return h;
+      }
+    }
+    // なければ「市区町村」または「市町村」を含む列を探す
+    for (const h of headers) {
+      if (h.includes('市区町村') || h.includes('市町村')) {
         return h;
       }
     }
@@ -91,6 +98,7 @@
         console.warn('市町村列を見つけられませんでした。headers:', data.headers);
         return;
       }
+      console.log(`市町村の列名: ${muniCol}`);
       data.rows.forEach(row => {
         const muni = row[muniCol];
         if (muni) municipalities.add(muni);
@@ -109,8 +117,6 @@
       option.textContent = name;
       select.appendChild(option);
     });
-
-    console.log("Municipalities loaded:", Array.from(municipalities));
   }
 
   function setupUpload(fileInputId, buttonId, dataVarName) {
@@ -138,7 +144,6 @@
     });
   }
 
-  // グラフ関連は前回実装のまま利用します
   let chartPopulation = null;
   let chartHouseholds = null;
   let chartStats = null;
@@ -149,6 +154,7 @@
       clearAllCharts();
       return;
     }
+
     function findRowByMuni(data) {
       if (!data) return null;
       const muniCol = findMuniColumn(data.headers);
