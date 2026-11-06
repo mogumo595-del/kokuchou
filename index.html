@@ -85,24 +85,19 @@ const dataStore = {
 };
 
 function parseCSV(text) {
-  // シンプルCSVパース（タブ区切り兼ねる、不要行除去）
   const lines = text.trim().split(/\r?\n/);
-
-  // 行ごとにタブやカンマで分割
-  // 先頭数行はヘッダ情報が多いため、数字開始の行から処理する
   let dataStartIndex = 0;
   for(let i=0; i<lines.length; i++){
     const line = lines[i].trim();
-    if(line.match(/^\d{10}/)){
+    if(line.match(/^\d{7,}/)){
       dataStartIndex = i;
       break;
     }
   }
-  const dataLines = lines.slice(dataStartIndex);
-
-  // 分割文字はタブかカンマを判定（基本はタブ）
-  // ここではタブ優先
-  return dataLines.map(line => line.split('\t').map(s => s.trim()));
+  return lines.slice(dataStartIndex).map(line => {
+    if(line.includes('\t')) return line.split('\t').map(s => s.trim());
+    else return line.split(',').map(s => s.trim());
+  });
 }
 
 function uploadFile(fileInputId, fileKey, processFunction){
@@ -129,11 +124,7 @@ function uploadFile(fileInputId, fileKey, processFunction){
 
 // 1つ目のCSV処理（男女別人口）
 function processFile1(data){
-  // 初期化
   dataStore.file1 = {};
-  // 市区町村名は8列目(インデックス7)にあり
-  // 男子(列11)、女子(列12)、総数(列10)
-  // data: [時間軸コード, ..., 市区町村名, ..., 総数, 男, 女]
   data.forEach(row => {
     if(row.length < 13) return;
     const muni = row[7];
@@ -150,11 +141,8 @@ function processFile1(data){
 // 2つ目のCSV処理（世帯の種類別世帯数など）
 function processFile2(data){
   dataStore.file2 = {};
-  // 世帯数総数(7), 一般世帯(8), 施設等世帯(9)
-  // 世帯人員総数(10), 一般世帯人員(11), 施設等世帯人員(12)
-  // 市区町村名は8列目
   data.forEach(row => {
-    if(row.length < 13) return;
+    if(row.length < 14) return;
     const muni = row[7];
     if(!muni) return;
     const household_total = Number(row[8].replace(/,/g, '')) || 0;
@@ -172,11 +160,8 @@ function processFile2(data){
 // 3つ目のCSV処理（2020年人口や人口密度など）
 function processFile3(data){
   dataStore.file3 = {};
-  // 2020年人口(7), 2020年世帯数(8), 5年間人口増減数(9),5年間人口増減率(10),5年間世帯増減数(11),5年間世帯増減率(12)
-  // 人口性比(13), 面積(14), 人口密度(15)
-  // 市区町村名は8列目
   data.forEach(row => {
-    if(row.length < 16) return;
+    if(row.length < 17) return;
     const muni = row[7];
     if(!muni) return;
     const pop_2020 = Number(row[8].replace(/,/g, '')) || 0;
@@ -216,7 +201,6 @@ function updateMunicipalitySelect(){
     return;
   }
   // 選択肢更新
-  // 現在の選択維持したいが初期時は先頭に空白追加
   let currentVal = select.value;
   const sorted = Array.from(dataStore.municipalities).sort();
   let optionsHtml = '<option value="">-- 市区町村を選択 --</option>';
@@ -227,9 +211,10 @@ function updateMunicipalitySelect(){
   select.disabled = false;
   if(sorted.includes(currentVal)){
     select.value = currentVal;
+    drawCharts(currentVal); // 選択維持されたらグラフも再描画
+  } else {
+    clearCharts();
   }
-  // 初期クリア＆グラフ表示は選択待ちに
-  clearCharts();
 }
 
 // グラフ描画
@@ -330,7 +315,6 @@ function clearCharts(){
   if(chart1) chart1.destroy();
   if(chart2) chart2.destroy();
   if(chart3) chart3.destroy();
-  // 白紙にする
   const ctx1 = document.getElementById('chart1').getContext('2d');
   ctx1.clearRect(0,0,600,400);
   const ctx2 = document.getElementById('chart2').getContext('2d');
