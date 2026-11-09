@@ -335,3 +335,18 @@ document.getElementById('municipalitySelect').addEventListener('change', e=>{
 
 </body>
 </html>
+
+drawChartsAlt();
+
+function drawChartsAlt(){
+  const ctx = document.getElementById('chart1').getContext('2d');
+  if(chart1) chart1.destroy();
+  chart1 = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ['A','B','C'],
+      datasets:[{label:'テストデータ',data:[10,20,30], backgroundColor:['#3e95cd','#8e5ea2','#3cba9f']}]
+    },
+    options: {responsive:false, scales:{y:{beginAtZero:true}}}
+  });
+}
