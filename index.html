@@ -122,7 +122,13 @@ function uploadFile(fileInputId, fileKey, processFunction){
   reader.readAsText(file, 'UTF-8');
 }
 
-// 1つ目のCSV処理（男女別人口）
+// 前後のダブルクォーテーションを削除する関数
+function trimQuotes(str) {
+  if(!str) return str;
+  return str.replace(/^"(.*)"$/, '$1');
+}  
+
+  // 1つ目のCSV処理（男女別人口）
 function processFile1(data){
   dataStore.file1 = {};
   data.forEach(row => {
