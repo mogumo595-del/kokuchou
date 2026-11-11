@@ -84,6 +84,12 @@ const dataStore = {
   combinedData: {}, // 市区町村名をキーにデータ統合
 };
 
+// ダブルクォーテーション除去関数
+function trimQuotes(str){
+  return str.replace(/^"(.*)"$/, '$1');
+}
+
+// CSVパース関数（改良：全要素にtrim + ダブルクォーテーション除去）
 function parseCSV(text) {
   const lines = text.trim().split(/\r?\n/);
   let dataStartIndex = 0;
@@ -95,8 +101,8 @@ function parseCSV(text) {
     }
   }
   return lines.slice(dataStartIndex).map(line => {
-    if(line.includes('\t')) return line.split('\t').map(s => s.trim());
-    else return line.split(',').map(s => s.trim());
+    const arr = line.includes('\t') ? line.split('\t') : line.split(',');
+    return arr.map(s => trimQuotes(s.trim()));
   });
 }
 
