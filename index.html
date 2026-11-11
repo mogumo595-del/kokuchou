@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8" />
-<title>データ集計ダッシュボード（カンマ数値修正済み）</title>
+<title>データ集計ダッシュボード（PapaParse対応版）</title>
 <style>
   body {
     font-family: Arial, sans-serif;
@@ -82,6 +82,7 @@
   <canvas id="chart3" width="600" height="400"></canvas>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 // データ格納
@@ -93,32 +94,16 @@ const dataStore = {
   combinedData: {}, // 市区町村名をキーにデータ統合
 };
 
-// ダブルクォーテーション除去関数
-function trimQuotes(str){
-  return str.replace(/^"(.*)"$/, '$1');
-}
-
 // 数値変換（カンマ除去してから変換）
 function parseNumber(str){
   if (!str) return 0;
   return Number(str.replace(/,/g, '')) || 0;
 }
 
-// CSVパース関数（改良：全要素にtrim + ダブルクォーテーション除去）
-function parseCSV(text) {
-  const lines = text.trim().split(/\r?\n/);
-  let dataStartIndex = 0;
-  for(let i=0; i<lines.length; i++){
-    const line = lines[i].trim();
-    if(line.match(/^\d{5,}/)){ // 少なくとも数字5桁で始まる行（コードの目安）
-      dataStartIndex = i;
-      break;
-    }
-  }
-  return lines.slice(dataStartIndex).map(line => {
-    const arr = line.includes('\t') ? line.split('\t') : line.split(',');
-    return arr.map(s => trimQuotes(s.trim()));
-  });
+// 空行やヘッダー行スキップするための判定関数
+function isDataRow(row){
+  // 少なくとも市区町村名(6番目要素)が存在しているか確認
+  return row.length > 6 && row[5] && row[5].trim() !== "";
 }
 
 function uploadFile(fileInputId, fileKey, processFunction){
@@ -128,30 +113,34 @@ function uploadFile(fileInputId, fileKey, processFunction){
     alert('ファイルを選択してください');
     return;
   }
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      const text = e.target.result;
-      const csvData = parseCSV(text);
-      processFunction(csvData);
-      // 処理後にプルダウン更新（無限ループ防止のためmergeCombinedData内では呼ばない）
-      updateMunicipalitySelect();
-      alert(fileKey + ' のアップロードと処理が完了しました');
-      // 検索入力有効化
-      document.getElementById('filterInput').disabled = false;
-      document.getElementById('filterInput').value = '';
-    } catch(err) {
-      alert('ファイルの処理中にエラーが発生しました: ' + err.message);
+
+  Papa.parse(file, {
+    header: false,
+    encoding: "UTF-8",
+    skipEmptyLines: true,
+    complete: results => {
+      try {
+        // フィルタリングしてデータ行だけ渡す
+        const dataRows = results.data.filter(isDataRow);
+        processFunction(dataRows);
+        updateMunicipalitySelect();
+        alert(fileKey + ' のアップロードと処理が完了しました');
+        document.getElementById('filterInput').disabled = false;
+        document.getElementById('filterInput').value = '';
+      } catch(err) {
+        alert('処理中にエラーが発生しました: ' + err.message);
+      }
+    },
+    error: (error) => {
+      alert('CSV読み込みエラー: ' + error.message);
     }
-  };
-  reader.readAsText(file, 'UTF-8');
+  });
 }
 
 // 1つ目のCSV処理（男女別人口）
 function processFile1(data){
   if (!dataStore.file1) dataStore.file1 = {};
   data.forEach(row => {
-    if(row.length < 10) return;
     const muni = row[5];
     if(!muni) return;
     const total = parseNumber(row[7]);
@@ -167,7 +156,6 @@ function processFile1(data){
 function processFile2(data){
   if (!dataStore.file2) dataStore.file2 = {};
   data.forEach(row => {
-    if(row.length < 13) return;
     const muni = row[5];
     if(!muni) return;
     const household_total = parseNumber(row[7]);
@@ -186,7 +174,6 @@ function processFile2(data){
 function processFile3(data){
   if (!dataStore.file3) dataStore.file3 = {};
   data.forEach(row => {
-    if(row.length < 16) return;
     const muni = row[5];
     if(!muni) return;
     const pop_2020 = parseNumber(row[7]);
@@ -381,9 +368,8 @@ document.getElementById('municipalitySelect').addEventListener('change', e=>{
 document.getElementById('filterInput').addEventListener('input', e => {
   const filterText = e.target.value.trim();
   updateMunicipalitySelect(filterText);
-  // 選択肢が1件なら自動選択も可能（任意）
   const select = document.getElementById('municipalitySelect');
-  if(select.options.length === 2){ // 1つは「-- 市区町村を選択 --」
+  if(select.options.length === 2){
     select.selectedIndex = 1;
     drawCharts(select.value);
   } else {
