@@ -115,6 +115,8 @@ function uploadFile(fileInputId, fileKey, processFunction){
   }
 
   Papa.parse(file, {
+    delimiter: ',',
+    quoteChar: '"',
     header: false,
     encoding: "UTF-8",
     skipEmptyLines: true,
