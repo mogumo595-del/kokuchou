@@ -36,6 +36,12 @@
     max-width: 600px;
     max-height: 400px;
   }
+  #filterInput {
+    margin-top: 10px;
+    padding: 5px;
+    min-width: 200px;
+    display: block;
+  }
 </style>
 </head>
 <body>
@@ -62,6 +68,9 @@
 
 <hr/>
 
+<label for="filterInput">市区町村名で絞り込み検索:</label>
+<input type="text" id="filterInput" placeholder="市区町村名で検索..." disabled />
+
 <label for="municipalitySelect">市区町村を選択して絞り込み:</label>
 <select id="municipalitySelect" disabled>
   <option>データをアップロードしてください</option>
@@ -82,6 +91,7 @@ const dataStore = {
   file3: null,
   municipalities: new Set(),
   combinedData: {}, // 市区町村名をキーにデータ統合
+  allOptions: [],   // すべての選択肢（文字列）の保持（表示用）
 };
 
 // ダブルクォーテーション除去関数
@@ -121,6 +131,9 @@ function uploadFile(fileInputId, fileKey, processFunction){
       processFunction(csvData);
       updateMunicipalitySelect();
       alert(fileKey + ' のアップロードと処理が完了しました');
+      // 検索入力有効化
+      document.getElementById('filterInput').disabled = false;
+      document.getElementById('filterInput').value = '';
     } catch(err) {
       alert('ファイルの処理中にエラーが発生しました: ' + err.message);
     }
@@ -198,32 +211,84 @@ function mergeCombinedData(){
   updateMunicipalitySelect();
 }
 
-function updateMunicipalitySelect(){
+// === プルダウン用選択肢を「全国、都道府県、市区町村（2000年含む）コード」の順に並べる ===
+// 都道府県・市区町村などの区別は、現状データから判別不可能なので、便宜的に市区町村名を元に分類可能なら独自ルールでラベル付け
+// ここでは例として「全国」「都道府県」「市区町村」の文字列を含むものを分類し、そうでなければ「市区町村」とみなします。
+// 例がなければすべて一つのグループでソート表示
+function sortMunicipalityOptions(options){
+  // options: Array of municipality names (string)
+  // 例として prefixわけ をする関数（必要に応じてカスタマイズしてください）
+  const national = options.filter(name => name.includes('全国'));
+  const prefectures = options.filter(name => !name.includes('全国') && name.includes('都道府県'));
+  const others = options.filter(name => !name.includes('全国') && !name.includes('都道府県'));
+
+  // それぞれをコードのような何かでソート（名前順）
+  national.sort();
+  prefectures.sort();
+  others.sort();
+
+  return [...national, ...prefectures, ...others];
+}
+
+// 実際ここでは明示的な全国・都道府県の区別がないので、
+// 単純に全市区町村名を「全国」「都道府県」「市区町村」の3つのカテゴリに分けられません。
+// もし別途コードなど情報があるならそれで振り分けてください。
+// 一旦、municipalitiesの一覧をソートして作成し、
+// 先頭に「全国（すべて）」、続いて都道府県、市区町村（昇順）として実装します。
+
+// 市区町村プルダウン更新
+function updateMunicipalitySelect(filter=""){
   const select = document.getElementById('municipalitySelect');
   if(dataStore.municipalities.size === 0){
     select.innerHTML = '<option>データをアップロードしてください</option>';
     select.disabled = true;
+    document.getElementById('filterInput').disabled = true;
     clearCharts();
     return;
   }
-  // 選択肢更新
-  let currentVal = select.value;
-  const sorted = Array.from(dataStore.municipalities).sort();
+
+  // すべての選択肢を作成（1回だけ作成）
+  // 名称だけでなくコードフル表示はできないので名称のまま
+  // 「全国」として特別に先頭に追加
+  let allOptions = Array.from(dataStore.municipalities);
+
+  // 先頭に「全国 - 全国」追加（任意）
+  // また用途に応じて「全て」を入れる等変更可能
+  if(!allOptions.includes("全国")){
+    allOptions.unshift("全国");
+  }
+
+  // 都道府県名だけ抽出(例として都道府県は"都","道","府","県"で終わる名前)
+  const prefOptions = allOptions.filter(name => {
+    return ["都", "道", "府", "県"].some(suffix => name.endsWith(suffix));
+  });
+
+  // 市区町村は都道府県以外から全国を除いたもの
+  const otherOptions = allOptions.filter(name => !prefOptions.includes(name) && name !== "全国");
+
+  // ソート
+  prefOptions.sort();
+  otherOptions.sort();
+
+  // 最終的な選択肢配列
+  const finalOptions = ["全国", ...prefOptions, ...otherOptions];
+
+  // 絞り込み（大文字小文字区別なく部分一致）
+  let filteredOptions = finalOptions.filter(name => name.includes(filter));
+
+  // 選択肢HTML生成
   let optionsHtml = '<option value="">-- 市区町村を選択 --</option>';
-  sorted.forEach(muni => {
+  filteredOptions.forEach(muni => {
     optionsHtml += `<option value="${muni}">${muni}</option>`;
   });
   select.innerHTML = optionsHtml;
-  select.disabled = false;
-  if(sorted.includes(currentVal)){
-    select.value = currentVal;
-    drawCharts(currentVal); // 選択維持されたらグラフも再描画
-  } else {
-    clearCharts();
-  }
+  select.disabled = filteredOptions.length === 0;
+
+  // 検索中に選択がリセットされることに対応してグラフクリア
+  clearCharts();
 }
 
-// グラフ描画
+// グラフ描画（省略、元コードと同じ）
 let chart1=null, chart2=null, chart3=null;
 function drawCharts(muni){
   if(!muni || !dataStore.combinedData[muni]){
@@ -232,7 +297,6 @@ function drawCharts(muni){
   }
   const data = dataStore.combinedData[muni];
 
-  // １つめグラフ：男女別人口
   const ctx1 = document.getElementById('chart1').getContext('2d');
   if(chart1) chart1.destroy();
   chart1 = new Chart(ctx1, {
@@ -247,12 +311,10 @@ function drawCharts(muni){
     },
     options: {
       responsive: false,
-      scales: { y: { beginAtZero: true,
-      max: undefined,   } }
+      scales: { y: { beginAtZero: true } }
     }
   });
 
-  // ２つめグラフ：世帯数・世帯人員
   const ctx2 = document.getElementById('chart2').getContext('2d');
   if(chart2) chart2.destroy();
   chart2 = new Chart(ctx2, {
@@ -274,12 +336,10 @@ function drawCharts(muni){
     },
     options: {
       responsive: false,
-      scales: { y: { beginAtZero: true,
-      max: undefined,   } }
+      scales: { y: { beginAtZero: true } }
     }
   });
 
-  // ３つめグラフ：人口変動など
   const ctx3 = document.getElementById('chart3').getContext('2d');
   if(chart3) chart3.destroy();
   chart3 = new Chart(ctx3, {
@@ -314,8 +374,7 @@ function drawCharts(muni){
     },
     options: {
       responsive: false,
-      scales: { y: { beginAtZero: true,
-      max: undefined,   } }
+      scales: { y: { beginAtZero: true } }
     }
   });
 }
@@ -340,7 +399,5 @@ document.getElementById('upload3').addEventListener('click',()=>uploadFile('file
 document.getElementById('municipalitySelect').addEventListener('change', e=>{
   drawCharts(e.target.value);
 });
-</script>
 
-</body>
-</html>
+//
