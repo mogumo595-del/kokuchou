@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8" />
-<title>データ集計ダッシュボード</title>
+<title>データ集計ダッシュボード（カンマ数値修正済み）</title>
 <style>
   body {
     font-family: Arial, sans-serif;
@@ -98,13 +98,19 @@ function trimQuotes(str){
   return str.replace(/^"(.*)"$/, '$1');
 }
 
+// 数値変換（カンマ除去してから変換）
+function parseNumber(str){
+  if (!str) return 0;
+  return Number(str.replace(/,/g, '')) || 0;
+}
+
 // CSVパース関数（改良：全要素にtrim + ダブルクォーテーション除去）
 function parseCSV(text) {
   const lines = text.trim().split(/\r?\n/);
   let dataStartIndex = 0;
   for(let i=0; i<lines.length; i++){
     const line = lines[i].trim();
-    if(line.match(/^\d{10,}/)){
+    if(line.match(/^\d{5,}/)){ // 少なくとも数字5桁で始まる行（コードの目安）
       dataStartIndex = i;
       break;
     }
@@ -148,9 +154,9 @@ function processFile1(data){
     if(row.length < 10) return;
     const muni = row[5];
     if(!muni) return;
-    const total = Number(row[7].replace(/,/g, '')) || 0;
-    const male = Number(row[8].replace(/,/g, '')) || 0;
-    const female = Number(row[9].replace(/,/g, '')) || 0;
+    const total = parseNumber(row[7]);
+    const male = parseNumber(row[8]);
+    const female = parseNumber(row[9]);
     dataStore.file1[muni] = { total, male, female };
     dataStore.municipalities.add(muni);
   });
@@ -164,12 +170,12 @@ function processFile2(data){
     if(row.length < 13) return;
     const muni = row[5];
     if(!muni) return;
-    const household_total = Number(row[7].replace(/,/g, '')) || 0;
-    const household_general = Number(row[8].replace(/,/g, '')) || 0;
-    const household_facility = Number(row[9].replace(/,/g, '')) || 0;
-    const person_total = Number(row[10].replace(/,/g, '')) || 0;
-    const person_general = Number(row[11].replace(/,/g, '')) || 0;
-    const person_facility = Number(row[12].replace(/,/g, '')) || 0;
+    const household_total = parseNumber(row[7]);
+    const household_general = parseNumber(row[8]);
+    const household_facility = parseNumber(row[9]);
+    const person_total = parseNumber(row[10]);
+    const person_general = parseNumber(row[11]);
+    const person_facility = parseNumber(row[12]);
     dataStore.file2[muni] = { household_total, household_general, household_facility, person_total, person_general, person_facility };
     dataStore.municipalities.add(muni);
   });
@@ -183,15 +189,15 @@ function processFile3(data){
     if(row.length < 16) return;
     const muni = row[5];
     if(!muni) return;
-    const pop_2020 = Number(row[7].replace(/,/g, '')) || 0;
-    const house_2020 = Number(row[8].replace(/,/g, '')) || 0;
-    const pop_diff = Number(row[9].replace(/,/g, '')) || 0;
-    const pop_diff_pct = Number(row[10].replace(/,/g, '')) || 0;
-    const house_diff = Number(row[11].replace(/,/g, '')) || 0;
-    const house_diff_pct = Number(row[12].replace(/,/g, '')) || 0;
-    const sex_ratio = Number(row[13].replace(/,/g, '')) || 0;
-    const area = Number(row[14].replace(/,/g, '')) || 0;
-    const density = Number(row[15].replace(/,/g, '')) || 0;
+    const pop_2020 = parseNumber(row[7]);
+    const house_2020 = parseNumber(row[8]);
+    const pop_diff = parseNumber(row[9]);
+    const pop_diff_pct = parseNumber(row[10]);
+    const house_diff = parseNumber(row[11]);
+    const house_diff_pct = parseNumber(row[12]);
+    const sex_ratio = parseNumber(row[13]);
+    const area = parseNumber(row[14]);
+    const density = parseNumber(row[15]);
     dataStore.file3[muni] = { pop_2020, house_2020, pop_diff, pop_diff_pct, house_diff, house_diff_pct, sex_ratio, area, density };
     dataStore.municipalities.add(muni);
   });
