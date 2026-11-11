@@ -132,7 +132,7 @@ function uploadFile(fileInputId, fileKey, processFunction){
 function processFile1(data){
   dataStore.file1 = {};
   data.forEach(row => {
-    if(row.length < 13) return;
+    if(row.length < 7) return;
     const muni = row[5];
     if(!muni) return;
     const total = Number(row[7].replace(/,/g, '')) || 0;
@@ -148,7 +148,7 @@ function processFile1(data){
 function processFile2(data){
   dataStore.file2 = {};
   data.forEach(row => {
-    if(row.length < 14) return;
+    if(row.length < 10) return;
     const muni = row[5];
     if(!muni) return;
     const household_total = Number(row[7].replace(/,/g, '')) || 0;
@@ -167,7 +167,7 @@ function processFile2(data){
 function processFile3(data){
   dataStore.file3 = {};
   data.forEach(row => {
-    if(row.length < 17) return;
+    if(row.length < 13) return;
     const muni = row[5];
     if(!muni) return;
     const pop_2020 = Number(row[7].replace(/,/g, '')) || 0;
